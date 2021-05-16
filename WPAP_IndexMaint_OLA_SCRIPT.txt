@@ -1,0 +1,76 @@
+/**
+
+- Index Reorg Performed Online
+
+Declare	@online tinyint = 1,	-- 2 = index rebuilds are performed online, 1 = index reorganisations are performed online, 0 = index rebuilds are performed offline
+	@scanMode bit = 0,	-- 1 = Detailed index scanning, 0 = Limited index scanning (faster)
+	@minFrag decimal(5,2) = 10.0,
+	@minPages bigint = 50
+, 
+- Passed string: exec prodba.dbo.usp_DefragIndexesAll 1
+
+
+**/
+
+
+- Limited index scan (faster)
+- Min fragmentation - 10.0 %
+- Min Pages 50
+- Database Exclusion list: 
+
+not in ('master', 'model', 'msdb', 'tempdb', 'EPACS_ARCHIVE','ProDBA', 'DBA_CONFIG', 'SSISDB') AND
+	[name] NOT LIKE '%ReportServer%'
+
+
+- Compat Level (Production Only): 120
+- Execution of index maint:
+	exec ProDBA.dbo.usp_DefragIndexes @databasename, @online, @scanMode, @minFrag, @minPages;
+
+- Exclude AccountStatment table! Is this still the case
+
+- DW: (Sunday -> 1, Saturday -> 7)
+
+
+-- *** exclusion list start ***
+
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'AccountStatement' and index_name = 'PK_AccountStatement'
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'AccountStatement' and index_name = 'IDX_StatementId'
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'SysQueueNotificationsSOAPLog' AND index_name = 'IDX_QueueId'
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'InboundExecutionHistory' AND index_name = 'PK_BIF_IEH'
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'TransferPostings' AND index_name = 'PK_TransferPostings'
+
+-- Additions to exclusion list following post-migration re-builds of tables previously too fragmented to be re-organised; the resultant
+-- constant re-organising on a nightly basis once hitting the current threshold of 10% fragmentation is causing some performance issues
+
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'LogToken' AND index_name = 'IX_LogToken';
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'Token' AND index_name = 'PK_Token1';
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'Token_AccountStatement' AND index_name = 'IX_Token_AccountStatement';
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'Token_OneClickData' AND index_name = 'IX_Token_OneClickData_11';
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'Token_OneClickData' AND index_name = 'IX_Token_OneClickData_21';
+DELETE FROM #ProDBA_Defrag WHERE [object_name] = 'Token_OneClickData' AND index_name = 'PK_Token_OneClickData1';
+
+-- ***  exclusion list end  *** 
+
+
+Use 
+@UpdateStatistics nvarchar(max)
+@TimeLimit int
+
+
+
+
+Commands to be executed for WPAP Staging and Production:
+=========================================================
+
+
+-- This execution replicates Production param values
+EXECUTE [DBA_CONFIG].[dbo].[IndexOptimize] @Databases = 'USER_DATABASES,-EPACS_ARCHIVE,-DBA_CONFIG', @FragmentationLow = NULL, @FragmentationMedium = 'INDEX_REORGANIZE', @FragmentationHigh = 'INDEX_REORGANIZE', @Indexes = 'ALL_INDEXES,-EPACS.dbo.SysQueueNotificationsSOAPLog.IDX_QueueId,-EPACS.dbo.AccountStatement.IDX_StatementId,-EPACS.dbo.AccountStatement.PK_AccountStatement,-EPACS.dbo.InboundExecutionHistory.PK_BIF_IEH,-EPACS.dbo.TransferPostings.PK_TransferPostings,-EPACS.dbo.LogToken.IX_LogToken,-EPACS.dbo.Token_AccountStatement.IX_Token_AccountStatement,-EPACS.dbo.Token_OneClickData.IX_Token_OneClickData_11,-EPACS.dbo.Token_OneClickData.IX_Token_OneClickData_21,-EPACS.dbo.Token_OneClickData.PK_Token_OneClickData1,-EPACS.dbo.Token.PK_Token1',  @TimeLimit = 18000, @LockTimeout = 300, @LogToTable = 'Y';
+
+--EXECUTE [DBA_CONFIG].[dbo].[IndexOptimize] @Databases = 'USER_DATABASES,-EPACS_ARCHIVE,-DBA_CONFIG', @FragmentationLow = NULL, @FragmentationMedium = 'INDEX_REORGANIZE', @FragmentationHigh = 'INDEX_REORGANIZE', @Indexes = 'ALL_INDEXES', @TimeLimit = 18000, @LockTimeout = 300, @LogToTable = 'Y';
+
+
+
+-- statistics maintenance
+EXECUTE [DBA_CONFIG].dbo.[IndexOptimize] @Databases = 'USER_DATABASES,-EPACS_ARCHIVE,-DBA_CONFIG', @FragmentationLow = NULL, @FragmentationMedium = NULL, @FragmentationHigh = NULL, @UpdateStatistics = 'ALL', @OnlyModifiedStatistics = N'Y', @LogToTable = N'Y';
+
+

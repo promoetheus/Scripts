@@ -1,0 +1,133 @@
+--> CHG0125347
+
+Title: 
+Deploy Ola Hallengren Index Maintenance Scripts
+
+Description:
+Install the latest Ola Hallengren Index Maintenance scripts. The script will be deployed to perform an index maintenance routine which will reorganize All fragmented indexes. There will also be a call to update Statistics which have been 
+modified since the last update. The Index Maintenance script will include parameters; @LockTimeout which will terminate the process if it has been locked for >= 5 minutes, and @TimeLimit which will terimate index maintenance if it has been running for >= 5 hours.
+
+There are 2 version of the script which i have created; 1 which includes an index exclusion list based on the IndexDefrag job in Production (EPACS)
+
+1a) Index exclusion list:
+EXECUTE [DBA_CONFIG].[dbo].[IndexOptimize] @Databases = 'USER_DATABASES,-EPACS_ARCHIVE,-DBA_CONFIG', @FragmentationLow = NULL, @FragmentationMedium = 'INDEX_REORGANIZE', @FragmentationHigh = 'INDEX_REORGANIZE', @Indexes = 'ALL_INDEXES,-EPACS.dbo.SysQueueNotificationsSOAPLog.IDX_QueueId,-EPACS.dbo.AccountStatement.IDX_StatementId,-EPACS.dbo.AccountStatement.PK_AccountStatement,-EPACS.dbo.InboundExecutionHistory.PK_BIF_IEH,-EPACS.dbo.TransferPostings.PK_TransferPostings,-EPACS.dbo.LogToken.IX_LogToken,-EPACS.dbo.Token_AccountStatement.IX_Token_AccountStatement,-EPACS.dbo.Token_OneClickData.IX_Token_OneClickData_11,-EPACS.dbo.Token_OneClickData.IX_Token_OneClickData_21,-EPACS.dbo.Token_OneClickData.PK_Token_OneClickData1,-EPACS.dbo.Token.PK_Token1',  @TimeLimit = 18000, @LockTimeout = 300, @LogToTable = 'Y';
+
+
+b) Excluding index exclusion list:
+EXECUTE [DBA_CONFIG].[dbo].[IndexOptimize] @Databases = 'USER_DATABASES,-EPACS_ARCHIVE,-DBA_CONFIG', @FragmentationLow = NULL, @FragmentationMedium = 'INDEX_REORGANIZE', @FragmentationHigh = 'INDEX_REORGANIZE', @Indexes = 'ALL_INDEXES', @TimeLimit = 18000, @LockTimeout = 300, @LogToTable = 'Y';
+
+2) Update modified Statistics:
+EXECUTE [DBA_CONFIG].dbo.[IndexOptimize] @Databases = 'USER_DATABASES,-EPACS_ARCHIVE,-DBA_CONFIG', @FragmentationLow = NULL, @FragmentationMedium = NULL, @FragmentationHigh = NULL, @UpdateStatistics = 'ALL', @OnlyModifiedStatistics = N'Y', @LogToTable = N'Y';
+
+
+
+
+The requirement is to roll out the standard index maintenance procedure across the Worldpay SQL Server estate.
+
+Part of the release will include to set the Auto Update Statistics Asynchronous setting ON. This will remove contention between query execution and statistics update at time of query execution.
+
+1. IndexOptimize - USER_DATABASES will kick off at 02:00AM daily, 
+2. StatisticsUpdate - USER_DATABASES will kick off after IndexOptimize job is completed.
+3. Will exclude EPACS_ARCHIVE and DBA_CONFIG db's. 
+4. Auto_update Statistics Asytnc will be enabled for database >= 1TB
+
+Implementation Plan:
+===================
+
+1. Remote desktop to UKDC1-PC-MGT13
+2. The attached script "1. Disable Sql Agent Maint jobs.sql" will perform the following actions. The script needs to be run against 
+each instance. See Point 4 which contains the list of SQL instances which the script needs to be run against
+ 
+a. Disable the current Index and Statistics maintenance jobs:
+- (Pro-DBA) Index Defrag
+- (Pro-DBA) Update Statistics
+ 
+b. Disable the Schedule for each of the Sql agent jobs:
+- (Pro-DBA) Index Defrag
+- (Pro-DBA) Update Statistics, 
+- DBA - StatisticsMaintenance
+ 
+c.Update the "IndexOptimize - USER_DATABASES" command to execute the following string. The string needs to be updated to EXECLUDE EPACS_ARCHIVE database 
+- Update the schedule to run daly at 02:00AM
+ 
+Sql string: EXECUTE [DBA_CONFIG].[dbo].[IndexOptimize] @Databases = 'USER_DATABASES, -EPACS_ARCHIVE',@FragmentationMedium = 'INDEX_REORGANIZE', @FragmentationHigh = 'INDEX_REORGANIZE', @Indexes = 'ALL_INDEXES', @LockTimeout = 300, @LogToTable = 'Y'
+ 
+ 
+4. Connect to the SQL instances
+ 
+MIS instance:
+---------------
+UKDC1-PC-SQL31A\WPGWDB01
+UKDC2-PC-SQL31B\WPGWDB01
+UKDC1-PC-SQL31A\WPGWDB01
+UKDC2-PC-SQL31B\WPGWDB01
+ 
+-> EPACS instance: Exclude EPACS_ARCHIVE (Execute separately)
+----------------
+UKDC1-PC-SQL31A\WPGWDB02
+UKDC2-PC-SQL31B\WPGWDB02
+UKDC1-PC-SQL31A\WPGWDB02
+UKDC2-PC-SQL31B\WPGWDB02
+ 
+ 
+ASPState instance:
+-------------------
+UKDC1-PC-SQL31A\WPGWDB03
+UKDC2-PC-SQL31B\WPGWDB03
+UKDC1-PC-SQL31A\WPGWDB03
+UKDC2-PC-SQL31B\WPGWDB03
+ 
+ 
+5. Run the attached script on all 3 instances (Both DC1 and DC2 instances); it will turn on Auto Update Statistics on User databases 
+which are larger than 1TB.
+
+
+Post Implementation Technical Validation:
+============================================
+1. Confirm the Enabled and Disabled agent jobs:
+ 
+Should be  Disabled:
+- (Pro-DBA) Index Defrag
+- (Pro-DBA) Update Statistics
+ 
+Should be Enabled:
+- IndexOptimize - USER_DATABASES
+- DBA - StatisticsMaintenance
+
+End User Validation:
+=======================
+1. Confirm the IndexOptimize Agent job is only performing Index_Reorg and excludes EPACS_ARCHIVE. A separate job will need to be created for 
+EPACS_ARCHIVE index maintenance.
+ 
+- IndexOptimize - USER_DATABASES
+ 
+2. Confirm runtime for the IndexOptimize - USER_DATABASES Agent job.
+ 
+3. Confirm any impact on Performing metrics IO, CPU, Memory, query resource contention
+
+Recovery Plan:
+===============
+1. Stop the Agent job/s which are causing the issues. This should stop any maintenance processes in progress.
+2. Investigate the root cause, depending on the root cause and the symptoms experienced:
+a. rollback the maintenance plan to use the original Index Maintenance and Statistics maintenance jobs.
+b. Enable those jobs
+c. Ensure the below jobs are disabled:
+- IndexOptimize - USER_DATABASES
+- DBA - StatisticsMaintenance
+
+
+Pre-implementation Testing (For Prod):
+========================================
+The Index Maintenance and Statistics Maintenance code has been deployed to PPE - UKDC1-OC-SQL31A\WPGWDB02
+
+
+============================================
++44 (0) 3306 068934
+
+937249#
+
+https://site.intercall.com/worldpayconferencing
+
+
+
+
