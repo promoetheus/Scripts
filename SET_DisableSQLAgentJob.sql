@@ -1,0 +1,1 @@
+EXEC msdb..sp_update_job @job_name = N'EPACS 5 Min Multi-table Replication', @enabled=1 -- 1=enabled, 0=disabled
