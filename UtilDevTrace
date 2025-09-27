@@ -1,0 +1,79 @@
+
+/**
+
+Use this query to obtain the query Text. The user will provide the Query text.
+The Query Text can also be obtained from the Endpoint label
+TextData column contains the query text
+
+EXample: Dev provides the following query and says that it has been timing out.
+
+ - Ask the developer do they have a timestamp when the query timed out 
+ - How do we find query details ???
+ - Pass the query TextData into the SQL script <3. sp_executesql_WrappedQuery.sql>
+
+SELECT [m].[CategoryId], [m].[CategoryName], [m].[CategoryProviderId], [m].[IsDeleted], [m].[SourceCategoryId], [t].[CategoryId], [t].[ParentCategoryId], [t].[CategoryId0], [t].[CategoryName], [t].[CategoryProviderId], [t].[IsDeleted], [t].[SourceCategoryId]
+FROM [ecommerce].[MerchantCategory] AS [m]
+LEFT JOIN (
+    SELECT [m0].[CategoryId], [m0].[ParentCategoryId], [m1].[CategoryId] AS [CategoryId0], [m1].[CategoryName], [m1].[CategoryProviderId], [m1].[IsDeleted], [m1].[SourceCategoryId]
+    FROM [ecommerce].[MerchantCategoryTaxonomyMapping] AS [m0]
+    INNER JOIN [ecommerce].[MerchantCategory] AS [m1] ON [m0].[ParentCategoryId] = [m1].[CategoryId]
+) AS [t] ON [m].[CategoryId] = [t].[CategoryId]
+WHERE [m].[CategoryProviderId] = @__categoryProviderId_0 AND [m].[IsDeleted] = 0
+ORDER BY [m].[SourceCategoryId], [m].[CategoryId], [t].[CategoryId], [t].[ParentCategoryId] option ( label = 'ProductCatalog GetCategoriesByProviderId' )\"",
+
+
+
+**/
+
+SELECT TOP 200 
+l.EndpointLabelId, l.EndpointLabel, l.DurationMS, l.LoginName, l.SPID, l.StartTime, l.EndTime, l.Reads, l.Writes, l.CPU, l.ServerName, l.EventClass,
+l.DatabaseName, l.RowCounts, try_convert(xml, t.textData) XML_TextData, t.TextData, t.ObjectName, t.BinaryData
+FROM UtilDevTrace..UIAPILongRunningByEndpointLabel l with(nolock)
+INNER JOIN UtilDevTrace..UIAPILongRunningTextData t with(nolock)
+ON l.SPID = t.SPID AND l.Starttime = t.Starttime
+WHERE 1=1
+	--and l.StartTime >= '2025-08-26 00:00:00' and l.StartTime < '2025-08-27 00:00:00'
+	--and TextData like '%SELECT%TOP%(@__p_14)%[c]%.%[CreativeId]%FROM%[dbo]%.%[Creative]%AS%[c]%WHERE%(%EXISTS%(%SELECT%1FROM%[dbo]%.%[AdvertiserUserGroupAuthorization]%AS%[a]%'
+	--and t.TextData like '%prc_ThirdPartyAudioCreativeScan_GetCreatives%@refreshStartDate%'
+	and t.TextData like '%AnchorGetCreativeLibraryCreatives%'
+	--and l.EndPointLabelId like '%AnchorGetCreativeLibraryCreatives%'
+	--and DurationMS > 25000
+	--and l.EndPointLabelId = 147804854
+ORDER BY l.StartTime DESC
+option(recompile)
+
+--exec prc_ThirdPartyAudioCreativeScan_GetCreatives @refreshStartDate='2025-08-27 00:18:13.960',@batchSize=1000,@rotationResetInterval='2025-08-26 00:33:14.960'
+exec dbo.prc_GetCreativesToAuditAppNexus @batchSize=100,@AllowVideoCreatives=1
+
+select top(100) *
+from UtilDevTrace..UIAPILongRunningByEndPointLabel with(nolock)
+where EndpointLabel like '%AnchorGetCreativeLibraryCreatives%'
+order by EndPointLabelId desc
+
+
+-- Some db instances the UIAPILongrunningByEndpointLabel data may not bne captured, use the below query.
+SELECT TextData, *
+FROM UtilDevTrace.trace.UIAPILongRunning with(nolock)
+--where TextData like '%select isnull (s.[SupplyVendorId], c.[SupplyVendorId]) as [SupplyVendorId],%'
+where objectName = 'prc_GetCreativeIdsThatNeedToBeSubmittedForApproval'
+and TextData like '%prc_GetCreativeIdsThatNeedToBeSubmittedForApproval%'
+and StartTime between GETUTCDATE()-30 and GETUTCDATE()
+--group by TextData
+
+
+
+declare @p1 dbo.tt_CreativeApprovalTarget_V4  insert into @p1 values(NULL,N'ssp',12,NULL,NULL)   
+exec [dbo].prc_InsertUpdateCreativeAuditStatus
+		@CreativeApprovalTargets=@p1,
+		@CreativeId=N'4ma9rqnr',
+		@CreativeVersion=3,
+		@CreativeApproverId=20,
+		@CreativeAuditStatus=N'pending',
+		@DisplayableReasonForStatus=N'Error submitting creative - Creative id with given width and height not found',
+		@SubmissionState=N'not submitted',
+		@SubmissionTime='2025-08-21 00:55:36.833',
+		@ExpirationTime=default,
+		@LastUpdatedBy=N'iab-submission',
+		@Lastmod=0,
+		@CreativeAuditStatusIsPartial=0,
+		@IabStatus=1
