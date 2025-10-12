@@ -1,0 +1,18 @@
+
+	1. What is the goal. Ask Questions. What is the objective
+	2. Do you have an idea how to solve the issue / problem?
+	3. Try to fix the sproc with the idea that you have
+	4. Address some of the statements in the current sproc
+		a. Are updated / deletes really needed
+	5. Are the operations doing logged operations really needed
+	6. Is the sproc processing a lot of records? Can batch processing be introduced?
+	7. Can Logging / debugging be done as part of troubleshooting
+	8. Check for any variables that are unused 
+		a. Do we need to keep them
+		b. Make sure variables have same data type
+	9. See if the sproc issue is related to a transaction, can the transaction be reduced? Reduce the transaction to the minimum
+		a. Example: Julians issue
+	10. Test the refactored code in Sandbox
+		a. Check the execution plan for any table scan / index anomalies 
+
+Test / Test / Test
